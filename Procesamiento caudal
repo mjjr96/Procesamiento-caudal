@@ -1,0 +1,35 @@
+library(readxl)
+library(ggplot2)
+library(data.table)
+library(lubridate)
+library(tidyverse)
+a<-read_xlsx("C:/Users/Mateo/Desktop/zq1.xlsx") #abre archivo de todos los datos de caudal procesados
+n<-nrow(a)
+a$Date<- as.POSIXct(a$Date,tz="GMT", format("%Y-%m-%d %H:%M"))
+a[n,1] #cual es la ultima fecha procesada 
+
+raw<-read.csv("zq1.csv", header=F, sep = ",") #Carga valores sin procesar
+
+raw<-raw[-c(1:23),-c(1,5:11)]
+nam<-raw[1,]
+colnames(raw)<-nam
+raw<-raw[-c(1),] #Prepara df para procesar
+raw$`Date / Time`<- as.POSIXct(raw$`Date / Time`,tz="GMT", format("%d-%m-%Y %H:%M:%S"))
+b1<-0.59;b2<-0.592;B<-b1+b2;Av<-0.2988;Aporte<-0.2;CDt<-1.235; CDr<-1.77;H<-14.8 
+#CDt=CD_triangular; #CDr=CD_rectangular; #H=Altura_de_vertice #Av=Altura_de_vertedero; #Aporte=Area_de_aporte_al_vertedero_Km2
+#son los valores unicos para cada uno de los vertederos
+proc<-raw
+proc$`Pressure (cm H2O)`<-as.numeric(proc$`Pressure (cm H2O)`)
+proc$`Temperature (°C)`<-as.numeric(proc$`Temperature (°C)`) #Pasa a formato numerico para poder operar con las columnas
+proc$nivel<-proc$`Pressure (cm H2O)`-H #Caluclo de nivel (Altura de agua en seccion sobre placa metalica)
+proc$`nivel (m)`<-proc$nivel/100 #Pasa nivel de cm a m
+for(i in 1:nrow(proc)){
+  if (proc$`nivel (m)`[i]<= Av){
+    proc$caudal[i]<-1000*(CDt*(proc$`nivel (m)`[i])^2.5)
+  } 
+  else{
+    proc$caudal[i]<-1000*((CDt*((proc$`nivel (m)`[i])^2.5-(proc$`nivel (m)`[i]-Av)^2.5)+(CDr*B*(proc$`nivel (m)`[i]-Av)^1.5)))
+  }} 
+#determina si se sobrepaso el vertedero, si no ha sido sobrepasado usa la formula de vertedero triangular, en caso que a sido sobrepasado calcula una parte
+#con la formula de vertedero triangular y la parte superior (lo sobrepasado) con formula de vertedero rectangular
+proc$`caudal especifico`<-proc$caudal*Aporte
