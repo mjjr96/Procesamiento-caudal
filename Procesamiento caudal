@@ -33,3 +33,28 @@ for(i in 1:nrow(proc)){
 #determina si se sobrepaso el vertedero, si no ha sido sobrepasado usa la formula de vertedero triangular, en caso que a sido sobrepasado calcula una parte
 #con la formula de vertedero triangular y la parte superior (lo sobrepasado) con formula de vertedero rectangular
 proc$`caudal especifico`<-proc$caudal*Aporte
+#Pocesamiento para obtener datos de precipitacion y ralizar comprobancion mediante grafico
+pre<-read.csv("C:/Users/Mateo/Desktop/Comprobacion de datos caudal/PO1305042022.csv", header = F, sep=",") #carga valores de precipitacion 
+pre<-pre[-c(1),-c(4:8)]
+pre<-pre[,-c(1)]
+nam<-c("Date","Evento")
+colnames(pre)<-nam
+pre<-pre[-c(1),] #Prepara el df para que se pueda operar con el mismo
+pre$Date<-as.POSIXct(pre$Date,tz="GMT", format("%d/%m/%y %H:%M"))
+pre$Evento<-as.numeric(pre$Evento)
+pre$Date<-lubridate::round_date(pre$Date,"5 minutes")
+# pre$Date[nrow(pre)]<-lubridate::round_date(pre$Date[nrow(pre)],"5 minutes")
+date<-as.data.frame(seq(as.POSIXct(pre$Date[1], tz="GMT"), as.POSIXct(pre$Date[nrow(pre)],tz="GMT"), by="05 min"))
+colnames(date)<-"TIME"
+colnames(pre)<-c("TIMESTAMP","Evento")
+df05min<-left_join(date, pre, by=c("TIME" = "TIMESTAMP"))
+for(i in nrow(df05min):2){
+  df05min$Evento[i]<-df05min$Evento[i]-df05min$Evento[i-1]
+}
+for(i in 2:nrow(df05min)){
+  if(df05min$TIME[i] == df05min$TIME[i+1]){
+    df05min$TIME[i]<-df05min$TIME[i+1]
+    df05min$Evento[i]<-df05min$Evento[i]+df05min$Evento[i+1]
+    df05min[i+1,]<-NULL
+  }
+}
