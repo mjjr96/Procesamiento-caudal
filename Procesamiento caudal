@@ -3,37 +3,48 @@ library(ggplot2)
 library(data.table)
 library(lubridate)
 library(tidyverse)
-a<-read_xlsx("C:/Users/Mateo/Desktop/zq1.xlsx") #abre archivo de todos los datos de caudal procesados
+library(dplyr)
+a<-read_xlsx("C:/Users/Mateo/Desktop/zq1.csv") #abre archivo de todos los datos de caudal procesados 
 n<-nrow(a)
 a$Date<- as.POSIXct(a$Date,tz="GMT", format("%Y-%m-%d %H:%M"))
 a[n,1] #cual es la ultima fecha procesada 
 
+######################CAUDAL########################
 raw<-read.csv("zq1.csv", header=F, sep = ",") #Carga valores sin procesar
 
 raw<-raw[-c(1:23),-c(1,5:11)]
 nam<-raw[1,]
 colnames(raw)<-nam
 raw<-raw[-c(1),] #Prepara df para procesar
-raw$`Date / Time`<- as.POSIXct(raw$`Date / Time`,tz="GMT", format("%d-%m-%Y %H:%M:%S"))
-b1<-0.59;b2<-0.592;B<-b1+b2;Av<-0.2988;Aporte<-0.2;CDt<-1.235; CDr<-1.77;H<-14.8 
-#CDt=CD_triangular; #CDr=CD_rectangular; #H=Altura_de_vertice #Av=Altura_de_vertedero; #Aporte=Area_de_aporte_al_vertedero_Km2
+raw$`Date / Time`<-dmy_hms(raw$`Date / Time`)
+#raw$`Date / Time`<- as.POSIXct(raw$`Date / Time`,tz="GMT", format("%d-%B-%Y %H:%M:%S")) #Si una funcion para pasar a clase POSIXct no sirve probar con la otra opcion marcada como comentario 
+b1<-0.59; b2<-0.592; B<-b1+b2; Av<-0.2988; Aporte<-0.2; 
+CDt<-1.235; CDr<-1.77; H<-14.8 
+#CDt=CD_triangular
+#CDr=CD_rectangular
+#H=Altura_de_vertice
+#Av=Altura_de_vertedero
+#Aporte=Area_de_aporte_al_vertedero_Km2
 #son los valores unicos para cada uno de los vertederos
 proc<-raw
 proc$`Pressure (cm H2O)`<-as.numeric(proc$`Pressure (cm H2O)`)
-proc$`Temperature (°C)`<-as.numeric(proc$`Temperature (°C)`) #Pasa a formato numerico para poder operar con las columnas
-proc$nivel<-proc$`Pressure (cm H2O)`-H #Caluclo de nivel (Altura de agua en seccion sobre placa metalica)
-proc$`nivel (m)`<-proc$nivel/100 #Pasa nivel de cm a m
+proc$`Temperature (°C)`<-as.numeric(proc$`Temperature (°C)`)
+proc$nivel<-proc$`Pressure (cm H2O)`-H
+proc$`nivel (m)`<-proc$nivel/100
 for(i in 1:nrow(proc)){
   if (proc$`nivel (m)`[i]<= Av){
     proc$caudal[i]<-1000*(CDt*(proc$`nivel (m)`[i])^2.5)
   } 
   else{
     proc$caudal[i]<-1000*((CDt*((proc$`nivel (m)`[i])^2.5-(proc$`nivel (m)`[i]-Av)^2.5)+(CDr*B*(proc$`nivel (m)`[i]-Av)^1.5)))
-  }} 
+  }}
 #determina si se sobrepaso el vertedero, si no ha sido sobrepasado usa la formula de vertedero triangular, en caso que a sido sobrepasado calcula una parte
 #con la formula de vertedero triangular y la parte superior (lo sobrepasado) con formula de vertedero rectangular
 proc$`caudal especifico`<-proc$caudal*Aporte
 #Pocesamiento para obtener datos de precipitacion y ralizar comprobancion mediante grafico
+
+
+##################PRECIPITACION############################
 pre<-read.csv("C:/Users/Mateo/Desktop/Comprobacion de datos caudal/PO1305042022.csv", header = F, sep=",") #carga valores de precipitacion 
 pre<-pre[-c(1),-c(4:8)]
 pre<-pre[,-c(1)]
@@ -47,14 +58,82 @@ pre$Date<-lubridate::round_date(pre$Date,"5 minutes")
 date<-as.data.frame(seq(as.POSIXct(pre$Date[1], tz="GMT"), as.POSIXct(pre$Date[nrow(pre)],tz="GMT"), by="05 min"))
 colnames(date)<-"TIME"
 colnames(pre)<-c("TIMESTAMP","Evento")
-df05min<-left_join(date, pre, by=c("TIME" = "TIMESTAMP"))
-for(i in nrow(df05min):2){
-  df05min$Evento[i]<-df05min$Evento[i]-df05min$Evento[i-1]
-}
-for(i in 2:nrow(df05min)){
-  if(df05min$TIME[i] == df05min$TIME[i+1]){
-    df05min$TIME[i]<-df05min$TIME[i+1]
-    df05min$Evento[i]<-df05min$Evento[i]+df05min$Evento[i+1]
-    df05min[i+1,]<-NULL
+df=data.frame(date,date);
+df[ , 2]=NA; df[1,2]=NA;
+colnames(df)=c("Date / Time","EVENTS");
+
+ContadorEventosLocal=0L;
+numero_eventos_acumulados=1L;
+
+flags_NA_borrar=which( is.na(pre[,2]) ==TRUE )
+pre=pre[-c(flags_NA_borrar),]
+
+for (i in 2:nrow(pre))
+{
+
+  fecha_anterior=pre[i-1,1];
+  dato_anterior=pre[i-1,2];
+  
+  fecha_actual=pre[i,1];  
+  dato_actual=pre[i,2];
+  
+  
+  if(ContadorEventosLocal==0L)
+  {
+    #cat("Entra en condicional como primera vez de datos repetidos \n");
+    fecha_buscada=fecha_actual;
+    numero_eventos_inicio_repetidos=dato_anterior;
   }
+  
+  if (fecha_actual==fecha_anterior)
+  {
+    
+    numero_eventos_acumulados=dato_actual-numero_eventos_inicio_repetidos+1;
+    #cat(paste0("Fecha repetida. Num Datos= ",numero_eventos_acumulados," \n"));
+    ContadorEventosLocal=ContadorEventosLocal+1L;
+  } else
+  {
+    #cat("Reinicio de Contador. \n");
+    ContadorEventosLocal=0L;
+    numero_eventos_acumulados=1L;
+    fecha_buscada=fecha_actual;
+    
+  }
+  
+  fila_inicio_repetidos=which(df[ , 1] == fecha_buscada);
+  df[fila_inicio_repetidos,2]=numero_eventos_acumulados;
+  
 }
+
+df[nrow(df),2]=NA
+df$precipitacion<-df$EVENTS*0.2
+#####################Grafico########################
+
+grafico<-merge(proc,df,by="Date / Time", all = T)
+grafico<-grafico[,-c(2:5)]
+grafico<-grafico[,-c(3:4)]
+maxSF   <- max(grafico$`Pressure (cm H2O)`, na.rm = T)
+maxPR   <- max(grafico$precipitacion, na.rm = T)
+par(mar = c(2, 2, 2, 2) + 0.1)
+plot(grafico$`Date / Time`, grafico$`Pressure (cm H2O)`,
+     type = 'l', col = "red",
+     ylim = c(0, 1.3 * maxSF),
+     xaxs = "i", yaxs = "i",
+     xlab = "Time", ylab = "Caudal",
+     main = paste0("ZQ", "1"), cex.main = 0.9)
+
+par(new = TRUE)
+plot(x = grafico$`Date / Time`, y = rep(0, nrow(grafico)),
+     type = "n", ylim = c(5 * maxPR, 0),
+     xaxs = "i", yaxs = "i",
+     axes = FALSE, xlab = "", ylab = "")
+segments(x0 = grafico$`Date / Time`, y0 = rep(0, nrow(grafico)),
+         x1 = grafico$`Date / Time`, y1 = grafico$precipitacion,
+         lend = 2, lwd =1)
+
+yrAxis  <- seq(0, ceiling(maxPR), length.out = 5)
+axis(4, at = yrAxis, labels = paste0(yrAxis))
+#       mtext(y = yrAxis, par(usr)[1], labels = yrAxis)
+mtext("Precip.", side = 4, line = 2, adj = 1)
+
+
